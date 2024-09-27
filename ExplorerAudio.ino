@@ -116,5 +116,48 @@ void loop() {
   volDownState = digitalRead(volDownPin);
   volUpState = digitalRead(volUpPin);
 
+  if (callState == HIGH) {
+    
+    digitalWrite(ledPin, HIGH);
+  } else {
+    
+    digitalWrite(ledPin, LOW);
+  }
+  if (buttonState == HIGH) {
+    
+    digitalWrite(ledPin, HIGH);
+  } else {
+    
+    digitalWrite(ledPin, LOW);
+  }
+    if (buttonState == HIGH) {
+    
+    digitalWrite(ledPin, HIGH);
+  } else {
+    
+    digitalWrite(ledPin, LOW);
+  }
+    if (buttonState == HIGH) {
+    
+    digitalWrite(ledPin, HIGH);
+  } else {
+    
+    digitalWrite(ledPin, LOW);
+  }
+    if (buttonState == HIGH) {
+    
+    digitalWrite(ledPin, HIGH);
+  } else {
+    
+    digitalWrite(ledPin, LOW);
+  }
+    if (buttonState == HIGH) {
+    
+    digitalWrite(ledPin, HIGH);
+  } else {
+    
+    digitalWrite(ledPin, LOW);
+  }
+
   delay(60000);  // do nothing
 }
