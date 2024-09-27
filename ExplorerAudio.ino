@@ -11,6 +11,21 @@
 #define RA8875_CS 5
 #define RA8875_RESET 4
 
+const int callPin = 2;
+const int rewindPin = 2;
+const int pausePin = 2;
+const int forwardPin = 2;
+const int volDownPin = 2;
+const int volUpPin = 2;
+// const int resetPin // this will just be wired to the ESP32 reset pin
+
+int callState = 0;  
+int rewindState = 0;  
+int pauseState = 0; 
+int forwardState = 0;
+int volDownState = 0; 
+int volUpState = 0;  
+
 Adafruit_RA8875 tft = Adafruit_RA8875(RA8875_CS, RA8875_RESET);
 uint16_t tx, ty;
 
@@ -34,6 +49,14 @@ void setup() {
   cfg.pin_data = 19;
   i2s.begin(cfg);
   Serial.begin(115200);
+
+  pinMode(callState, INPUT);
+  pinMode(rewindState, INPUT);
+  pinMode(pauseState, INPUT);
+  pinMode(forwardState, INPUT);
+  pinMode(volDownState, INPUT);
+  pinMode(volUpState, INPUT);
+
 
   //Serial.println("RA8875 start");
   //if (!tft.begin(RA8875_800x480)) {
@@ -85,5 +108,13 @@ void setup() {
 }
 
 void loop() {
+  
+  callState = digitalRead(callPin);
+  rewindState = digitalRead(rewindPin);
+  pauseState = digitalRead(pausePin);
+  forwardState = digitalRead(forwardPin);
+  volDownState = digitalRead(volDownPin);
+  volUpState = digitalRead(volUpPin);
+
   delay(60000);  // do nothing
 }
