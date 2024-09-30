@@ -1,6 +1,3 @@
-#include "AudioTools.h"
-#include "BluetoothA2DPSink.h"
-
 #include <SPI.h>
 #include "Adafruit_GFX.h"
 #include "Adafruit_RA8875.h"
@@ -11,20 +8,18 @@
 #define RA8875_CS 5
 #define RA8875_RESET 4
 
+String songTitle = "";
+String songArtist = "";
+String songAlbum = "";
+uint32_t totalPlaytimeMs = 0;
+uint32_t currentPlaytimeMs = 0;
+
 const int callPin = 2;
 const int rewindPin = 2;
 const int pausePin = 2;
 const int forwardPin = 2;
 const int volDownPin = 2;
 const int volUpPin = 2;
-// const int resetPin // this will just be wired to the ESP32 reset pin
-
-int callState = 0;  
-int rewindState = 0;  
-int pauseState = 0; 
-int forwardState = 0;
-int volDownState = 0; 
-int volUpState = 0;  
 
 Adafruit_RA8875 tft = Adafruit_RA8875(RA8875_CS, RA8875_RESET);
 uint16_t tx, ty;
@@ -32,17 +27,107 @@ uint16_t tx, ty;
 I2SStream i2s;
 BluetoothA2DPSink a2dp_sink(i2s);
 
-bool connected = true;
+bool isPlaying = false;
+unsigned long previousMillis = 0;  // For playtime updates
+
+// Utility function to format time in minutes and seconds
+String formatTime(uint32_t timeMs) {
+  uint32_t totalSeconds = timeMs / 1000;
+  uint32_t minutes = totalSeconds / 60;
+  uint32_t seconds = totalSeconds % 60;
+  char buffer[6];
+  sprintf(buffer, "%02d:%02d", minutes, seconds);
+  return String(buffer);
+}
 
 void avrc_metadata_callback(uint8_t id, const uint8_t *text) {
   Serial.printf("==> AVRC metadata rsp: attribute id 0x%x, %s\n", id, text);
-  if (id == ESP_AVRC_MD_ATTR_PLAYING_TIME) {
-    uint32_t playtime = String((char*)text).toInt();
-    Serial.printf("==> Playing time is %d ms (%d seconds)\n", playtime, (int)round(playtime/1000.0));
+
+  switch (id) {
+    case ESP_AVRC_MD_ATTR_TITLE:
+      songTitle = String((char*)text);
+      break;
+    case ESP_AVRC_MD_ATTR_ARTIST:
+      songArtist = String((char*)text);
+      break;
+    case ESP_AVRC_MD_ATTR_ALBUM:
+      songAlbum = String((char*)text);
+      break;
+    case ESP_AVRC_MD_ATTR_PLAYING_TIME:
+      totalPlaytimeMs = String((char*)text).toInt();
+      break;
+  }
+
+  // Refresh the display with updated metadata
+  updateDisplay();
+}
+
+void playbackStateCallback(esp_a2d_audio_state_t state, void* param) {
+  if (state == ESP_A2D_AUDIO_STATE_STARTED) {
+    Serial.println("Playing");
+    isPlaying = true;
+    updatePlayPauseStatus(true);
+  } else if (state == ESP_A2D_AUDIO_STATE_REMOTE_SUSPEND || state == ESP_A2D_AUDIO_STATE_STOPPED) {
+    Serial.println("Paused");
+    isPlaying = false;
+    updatePlayPauseStatus(false);
   }
 }
 
+void updatePlayPauseStatus(bool playing) {
+  // Clear previous status line and update
+  tft.textSetCursor(10, 310);
+  tft.textWrite("                ");  // Clear the previous text
+  tft.textSetCursor(10, 310);
+  tft.textWrite(playing ? "Status: Playing" : "Status: Paused");
+}
+
+void updateDisplay() {
+  tft.fillScreen(RA8875_BLACK);  // Clear screen
+  tft.textMode();  // Set text mode
+  tft.textEnlarge(2);
+  
+  // Display metadata on the screen
+  tft.textColor(RA8875_GREEN, RA8875_BLACK);  // Green text on black background
+
+  tft.textSetCursor(10, 10);   // Line 1: Title
+  tft.textWrite("Title: ");
+  tft.textWrite(songTitle.c_str());
+
+  tft.textSetCursor(10, 110);  // Line 2: Artist
+  tft.textWrite("Artist: ");
+  tft.textWrite(songArtist.c_str());
+
+  tft.textSetCursor(10, 210);  // Line 3: Album
+  tft.textWrite("Album: ");
+  tft.textWrite(songAlbum.c_str());
+
+  tft.textSetCursor(10, 310);  // Line 4: Status
+  tft.textWrite(isPlaying ? "Status: Playing" : "Status: Paused");
+
+  // Update playtime immediately
+  updatePlaytime();
+}
+
+void updatePlaytime() {
+  // If there's no total playtime, don't display the playtime yet
+  if (totalPlaytimeMs == 0) {
+    return;
+  }
+
+  // Calculate current playtime
+  String currentTime = formatTime(currentPlaytimeMs);
+  String totalTime = formatTime(totalPlaytimeMs);
+
+  // Clear and update the playtime line
+  tft.textSetCursor(10, 410);
+  tft.textWrite("                ");  // Clear previous time
+  tft.textSetCursor(10, 410);
+  tft.textWrite((currentTime + " / " + totalTime).c_str());
+}
+
 void setup() {
+  SPI.begin(SCK_PIN, MISO_PIN, MOSI_PIN, RA8875_CS); 
   auto cfg = i2s.defaultConfig();
   cfg.pin_bck = 26;
   cfg.pin_ws = 25;
@@ -50,19 +135,19 @@ void setup() {
   i2s.begin(cfg);
   Serial.begin(115200);
 
-  pinMode(callState, INPUT);
-  pinMode(rewindState, INPUT);
-  pinMode(pauseState, INPUT);
-  pinMode(forwardState, INPUT);
-  pinMode(volDownState, INPUT);
-  pinMode(volUpState, INPUT);
+  pinMode(callPin, INPUT);
+  pinMode(rewindPin, INPUT);
+  pinMode(pausePin, INPUT);
+  pinMode(forwardPin, INPUT);
+  pinMode(volDownPin, INPUT);
+  pinMode(volUpPin, INPUT);
 
-
-  //Serial.println("RA8875 start");
-  //if (!tft.begin(RA8875_800x480)) {
-  //  Serial.println("RA8875 Not Found!");
-  //while (1);
-  //}
+  // Initialize display
+  Serial.println("RA8875 start");
+  if (!tft.begin(RA8875_800x480)) {
+    Serial.println("RA8875 Not Found!");
+    while (1);
+  }
 
   tft.displayOn(true);
   tft.GPIOX(true);      // Enable TFT - display enable tied to GPIOX
@@ -72,92 +157,28 @@ void setup() {
   tft.textMode();
   tft.cursorBlink(32);
 
-  tft.textSetCursor(10, 10);
-
-  /* Render some text! */
-  char string[15] = "Hello, World! ";
-  tft.textTransparent(RA8875_WHITE);
-  tft.textWrite(string);
-  tft.textColor(RA8875_WHITE, RA8875_RED);
-  tft.textWrite(string);
-  tft.textTransparent(RA8875_CYAN);
-  tft.textWrite(string);
-  tft.textTransparent(RA8875_GREEN);
-  tft.textWrite(string);
-  tft.textColor(RA8875_YELLOW, RA8875_CYAN);
-  tft.textWrite(string);
-  tft.textColor(RA8875_BLACK, RA8875_MAGENTA);
-  tft.textWrite(string);
-
-  /* Change the cursor location and color ... */
-  tft.textSetCursor(100, 100);
-  tft.textTransparent(RA8875_RED);
-  /* If necessary, enlarge the font */
-  tft.textEnlarge(1);
-  /* ... and render some more text! */
-  tft.textWrite(string);
-  tft.textSetCursor(100, 150);
-  tft.textEnlarge(2);
-  tft.textWrite(string);
-/////////////////////////////////////////////////////
-  a2dp_sink.set_avrc_metadata_attribute_mask(ESP_AVRC_MD_ATTR_TITLE | ESP_AVRC_MD_ATTR_ARTIST | ESP_AVRC_MD_ATTR_ALBUM | ESP_AVRC_MD_ATTR_PLAYING_TIME );
+  // Initialize Bluetooth
+  a2dp_sink.set_avrc_metadata_attribute_mask(ESP_AVRC_MD_ATTR_TITLE | ESP_AVRC_MD_ATTR_ARTIST | ESP_AVRC_MD_ATTR_ALBUM | ESP_AVRC_MD_ATTR_PLAYING_TIME);
   a2dp_sink.set_avrc_metadata_callback(avrc_metadata_callback);
-
   a2dp_sink.set_auto_reconnect(true);
   a2dp_sink.start("Explorer Audio");
+
+  // Set playback state callback
+  a2dp_sink.set_on_audio_state_changed(playbackStateCallback);
+
+  // Display initial metadata
+  updateDisplay();
 }
 
 void loop() {
-  
-  callState = digitalRead(callPin);
-  rewindState = digitalRead(rewindPin);
-  pauseState = digitalRead(pausePin);
-  forwardState = digitalRead(forwardPin);
-  volDownState = digitalRead(volDownPin);
-  volUpState = digitalRead(volUpPin);
+  unsigned long currentMillis = millis();
 
-  if (callState == HIGH) {
-    
-    digitalWrite(ledPin, HIGH);
-  } else {
-    
-    digitalWrite(ledPin, LOW);
+  // If the song is playing, update the playtime every second
+  if (isPlaying && totalPlaytimeMs > 0) {
+    if (currentMillis - previousMillis >= 1000) {
+      previousMillis = currentMillis;
+      currentPlaytimeMs += 1000;  // Increment playtime by 1 second
+      updatePlaytime();  // Update playtime on the display
+    }
   }
-  if (buttonState == HIGH) {
-    
-    digitalWrite(ledPin, HIGH);
-  } else {
-    
-    digitalWrite(ledPin, LOW);
-  }
-    if (buttonState == HIGH) {
-    
-    digitalWrite(ledPin, HIGH);
-  } else {
-    
-    digitalWrite(ledPin, LOW);
-  }
-    if (buttonState == HIGH) {
-    
-    digitalWrite(ledPin, HIGH);
-  } else {
-    
-    digitalWrite(ledPin, LOW);
-  }
-    if (buttonState == HIGH) {
-    
-    digitalWrite(ledPin, HIGH);
-  } else {
-    
-    digitalWrite(ledPin, LOW);
-  }
-    if (buttonState == HIGH) {
-    
-    digitalWrite(ledPin, HIGH);
-  } else {
-    
-    digitalWrite(ledPin, LOW);
-  }
-
-  delay(60000);  // do nothing
 }
