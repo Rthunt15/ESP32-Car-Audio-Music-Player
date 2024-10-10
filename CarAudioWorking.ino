@@ -8,7 +8,7 @@
 
 #define SCK_PIN   18  // Default SCK
 #define MOSI_PIN  23  // Default MOSI
-#define MISO_PIN  22  // Remapped MISO to GPIO22
+#define MISO_PIN  22  // Remapped MISO to GPIO22 due to IOS audio quality weirdness
 #define RA8875_CS 5
 #define RA8875_RESET 4
 
@@ -44,20 +44,6 @@ BluetoothA2DPSink a2dp_sink(i2s);
 
 bool isPlaying = false;
 
-// Utility function to format time in minutes and seconds
-String formatTime(uint32_t timeMs) {
-  uint32_t totalSeconds = timeMs / 1000;
-  uint32_t minutes = totalSeconds / 60;
-  uint32_t seconds = totalSeconds % 60;
-  char buffer[6];
-  sprintf(buffer, "%02d:%02d", minutes, seconds);
-  return String(buffer);
-}
-
-void avrc_rn_play_pos_callback(uint32_t play_pos) {
-  currentPlaytimeMs = play_pos; // Update current playtime based on position
-  Serial.printf("Current play position is %d (%d seconds)\n", play_pos, (int)round(play_pos / 1000.0));
-}
 
 ////////////////////////////////// Metadata String Handling //////////////////////////////////
 
@@ -79,10 +65,8 @@ void avrc_metadata_callback(uint8_t id, const uint8_t *text) {
       break;
   }
 
-  // Refresh the display with updated metadata
   updateDisplay();
 }
-
 
 
 void playbackStateCallback(esp_a2d_audio_state_t state, void* param) {
@@ -127,7 +111,7 @@ void updateDisplay() {
 ////////////////////////////////// Setup //////////////////////////////////
 
 void setup() {
-  SPI.begin(SCK_PIN, MISO_PIN, MOSI_PIN, RA8875_CS); 
+  SPI.begin(SCK_PIN, MISO_PIN, MOSI_PIN, RA8875_CS); //enable SPI or else is still uses default maps
   auto cfg = i2s.defaultConfig();
   cfg.pin_bck = 26;
   cfg.pin_ws = 25;
