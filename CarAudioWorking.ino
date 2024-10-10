@@ -120,7 +120,6 @@ void setup() {
   // Initialize Bluetooth
   a2dp_sink.set_avrc_metadata_callback(avrc_metadata_callback);
   a2dp_sink.set_on_audio_state_changed(playbackStateCallback);
-  a2dp_sink.set_avrc_rn_play_pos_callback(avrc_rn_play_pos_callback);
   a2dp_sink.set_auto_reconnect(true);
   a2dp_sink.start("Device Name");
 
