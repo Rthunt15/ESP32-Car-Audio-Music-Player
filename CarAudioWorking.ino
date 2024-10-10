@@ -12,18 +12,6 @@
 #define RA8875_CS 5
 #define RA8875_RESET 4
 
-ezButton buttonPrev(32);  
-ezButton buttonRewind(14); 
-ezButton buttonPause(13); 
-ezButton buttonSkip(12); 
-ezButton buttonVolDown(33);
-ezButton buttonVolUp(27); 
-
-const unsigned long debounceDelay = 50;
-unsigned long lastDebounceTime[6] = {0};
-
-bool lastButtonState[6] = {HIGH};
-
 bool callPressed = false;
 bool prevSongPressed = false;
 bool playPausePressed = false;
@@ -34,8 +22,6 @@ bool volumeUpPressed = false;
 String songTitle = "";
 String songArtist = "";
 String songAlbum = "";
-uint32_t currentPlaytimeMs = 0; // Current playtime in milliseconds
-uint32_t totalPlaytimeMs = 0;   // Total playtime in milliseconds
 
 Adafruit_RA8875 tft = Adafruit_RA8875(RA8875_CS, RA8875_RESET);
 
@@ -59,9 +45,6 @@ void avrc_metadata_callback(uint8_t id, const uint8_t *text) {
       break;
     case ESP_AVRC_MD_ATTR_ALBUM:
       songAlbum = String((char*)text);
-      break;
-    case ESP_AVRC_MD_ATTR_PLAYING_TIME:
-      totalPlaytimeMs = String((char*)text).toInt() * 1000; // Convert to milliseconds
       break;
   }
 
@@ -113,9 +96,9 @@ void updateDisplay() {
 void setup() {
   SPI.begin(SCK_PIN, MISO_PIN, MOSI_PIN, RA8875_CS); //enable SPI or else is still uses default maps
   auto cfg = i2s.defaultConfig();
-  cfg.pin_bck = 26;
-  cfg.pin_ws = 25;
-  cfg.pin_data = 19;
+  cfg.pin_bck = 26; //External DAC BCK to DAC2 of ESP32
+  cfg.pin_ws = 25; //External DAC RCK to DAC1 of ESP32
+  cfg.pin_data = 19; //DAC audio data out to pin 19 (MISO) this is due to some weirdness with only IOS devices sounding awful on pin22, something with cross muxing idk, pin 19 works great though
   i2s.begin(cfg);
   Serial.begin(115200);
 
