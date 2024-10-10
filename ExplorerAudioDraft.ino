@@ -1,3 +1,6 @@
+#include "AudioTools.h"
+#include "BluetoothA2DPSink.h"
+
 #include <SPI.h>
 #include "Adafruit_GFX.h"
 #include "Adafruit_RA8875.h"
@@ -8,27 +11,37 @@
 #define RA8875_CS 5
 #define RA8875_RESET 4
 
+ezButton buttonPrev(32);  
+ezButton buttonRewind(14); 
+ezButton buttonPause(13); 
+ezButton buttonSkip(12); 
+ezButton buttonVolDown(33);
+ezButton buttonVolUp(27); 
+
+const unsigned long debounceDelay = 50;
+unsigned long lastDebounceTime[6] = {0};
+
+bool lastButtonState[6] = {HIGH};
+
+bool callPressed = false;
+bool prevSongPressed = false;
+bool playPausePressed = false;
+bool nextSongPressed = false;
+bool volumeDownPressed = false;
+bool volumeUpPressed = false;
+
 String songTitle = "";
 String songArtist = "";
 String songAlbum = "";
-uint32_t totalPlaytimeMs = 0;
-uint32_t currentPlaytimeMs = 0;
-
-const int callPin = 2;
-const int rewindPin = 2;
-const int pausePin = 2;
-const int forwardPin = 2;
-const int volDownPin = 2;
-const int volUpPin = 2;
+uint32_t currentPlaytimeMs = 0; // Current playtime in milliseconds
+uint32_t totalPlaytimeMs = 0;   // Total playtime in milliseconds
 
 Adafruit_RA8875 tft = Adafruit_RA8875(RA8875_CS, RA8875_RESET);
-uint16_t tx, ty;
 
 I2SStream i2s;
 BluetoothA2DPSink a2dp_sink(i2s);
 
 bool isPlaying = false;
-unsigned long previousMillis = 0;  // For playtime updates
 
 // Utility function to format time in minutes and seconds
 String formatTime(uint32_t timeMs) {
@@ -39,6 +52,13 @@ String formatTime(uint32_t timeMs) {
   sprintf(buffer, "%02d:%02d", minutes, seconds);
   return String(buffer);
 }
+
+void avrc_rn_play_pos_callback(uint32_t play_pos) {
+  currentPlaytimeMs = play_pos; // Update current playtime based on position
+  Serial.printf("Current play position is %d (%d seconds)\n", play_pos, (int)round(play_pos / 1000.0));
+}
+
+////////////////////////////////// Metadata String Handling //////////////////////////////////
 
 void avrc_metadata_callback(uint8_t id, const uint8_t *text) {
   Serial.printf("==> AVRC metadata rsp: attribute id 0x%x, %s\n", id, text);
@@ -54,7 +74,7 @@ void avrc_metadata_callback(uint8_t id, const uint8_t *text) {
       songAlbum = String((char*)text);
       break;
     case ESP_AVRC_MD_ATTR_PLAYING_TIME:
-      totalPlaytimeMs = String((char*)text).toInt();
+      totalPlaytimeMs = String((char*)text).toInt() * 1000; // Convert to milliseconds
       break;
   }
 
@@ -62,69 +82,66 @@ void avrc_metadata_callback(uint8_t id, const uint8_t *text) {
   updateDisplay();
 }
 
+
+
 void playbackStateCallback(esp_a2d_audio_state_t state, void* param) {
   if (state == ESP_A2D_AUDIO_STATE_STARTED) {
     Serial.println("Playing");
     isPlaying = true;
-    updatePlayPauseStatus(true);
   } else if (state == ESP_A2D_AUDIO_STATE_REMOTE_SUSPEND || state == ESP_A2D_AUDIO_STATE_STOPPED) {
     Serial.println("Paused");
     isPlaying = false;
-    updatePlayPauseStatus(false);
   }
 }
 
-void updatePlayPauseStatus(bool playing) {
-  // Clear previous status line and update
-  tft.textSetCursor(10, 310);
-  tft.textWrite("                ");  // Clear the previous text
-  tft.textSetCursor(10, 310);
-  tft.textWrite(playing ? "Status: Playing" : "Status: Paused");
-}
+////////////////////////////////// Update Display //////////////////////////////////
 
 void updateDisplay() {
   tft.fillScreen(RA8875_BLACK);  // Clear screen
   tft.textMode();  // Set text mode
-  tft.textEnlarge(2);
+  tft.textEnlarge(2.5);
   
   // Display metadata on the screen
   tft.textColor(RA8875_GREEN, RA8875_BLACK);  // Green text on black background
 
-  tft.textSetCursor(10, 10);   // Line 1: Title
-  tft.textWrite("Title: ");
+  tft.textSetCursor(10, 50);   // Line 1: Title
+ //tft.textWrite("Title: ");
   tft.textWrite(songTitle.c_str());
 
-  tft.textSetCursor(10, 110);  // Line 2: Artist
-  tft.textWrite("Artist: ");
+  tft.textSetCursor(10, 210);  // Line 2: Artist
+ // tft.textWrite("Artist: ");
   tft.textWrite(songArtist.c_str());
 
-  tft.textSetCursor(10, 210);  // Line 3: Album
-  tft.textWrite("Album: ");
+  tft.textSetCursor(10, 370);  // Line 3: Album
+  //tft.textWrite("Album: ");
   tft.textWrite(songAlbum.c_str());
 
-  tft.textSetCursor(10, 310);  // Line 4: Status
-  tft.textWrite(isPlaying ? "Status: Playing" : "Status: Paused");
+ // tft.textSetCursor(10, 350);  // Line 4: Status
+ // tft.textWrite(isPlaying ? ">" : "||");
 
-  // Update playtime immediately
-  updatePlaytime();
+  // Update playtime display
+  tft.textSetCursor(10, 360);
+  tft.textColor(RA8875_BLACK, RA8875_BLACK);
+  tft.textWrite("");
+  updatePlaytimeDisplay();
+  delay(1000);
 }
 
-void updatePlaytime() {
-  // If there's no total playtime, don't display the playtime yet
-  if (totalPlaytimeMs == 0) {
-    return;
-  }
 
-  // Calculate current playtime
+
+
+
+void updatePlaytimeDisplay() {
   String currentTime = formatTime(currentPlaytimeMs);
   String totalTime = formatTime(totalPlaytimeMs);
 
-  // Clear and update the playtime line
-  tft.textSetCursor(10, 410);
-  tft.textWrite("                ");  // Clear previous time
-  tft.textSetCursor(10, 410);
-  tft.textWrite((currentTime + " / " + totalTime).c_str());
+ // tft.textSetCursor(10, 410);  // Playtime line
+ // tft.textWrite("                ");  // Clear previous time
+ // tft.textSetCursor(10, 410);
+ // tft.textWrite((currentTime + " / " + totalTime).c_str());
 }
+
+////////////////////////////////// Setup //////////////////////////////////
 
 void setup() {
   SPI.begin(SCK_PIN, MISO_PIN, MOSI_PIN, RA8875_CS); 
@@ -134,13 +151,6 @@ void setup() {
   cfg.pin_data = 19;
   i2s.begin(cfg);
   Serial.begin(115200);
-
-  pinMode(callPin, INPUT);
-  pinMode(rewindPin, INPUT);
-  pinMode(pausePin, INPUT);
-  pinMode(forwardPin, INPUT);
-  pinMode(volDownPin, INPUT);
-  pinMode(volUpPin, INPUT);
 
   // Initialize display
   Serial.println("RA8875 start");
@@ -158,27 +168,28 @@ void setup() {
   tft.cursorBlink(32);
 
   // Initialize Bluetooth
-  a2dp_sink.set_avrc_metadata_attribute_mask(ESP_AVRC_MD_ATTR_TITLE | ESP_AVRC_MD_ATTR_ARTIST | ESP_AVRC_MD_ATTR_ALBUM | ESP_AVRC_MD_ATTR_PLAYING_TIME);
   a2dp_sink.set_avrc_metadata_callback(avrc_metadata_callback);
+  a2dp_sink.set_on_audio_state_changed(playbackStateCallback);
+  a2dp_sink.set_avrc_rn_play_pos_callback(avrc_rn_play_pos_callback);
   a2dp_sink.set_auto_reconnect(true);
   a2dp_sink.start("Explorer Audio");
 
-  // Set playback state callback
-  a2dp_sink.set_on_audio_state_changed(playbackStateCallback);
+  pinMode(BUTTON_CALL, INPUT_PULLUP);
+  pinMode(BUTTON_PREV_SONG, INPUT_PULLUP);
+  pinMode(BUTTON_PLAY_PAUSE, INPUT_PULLUP);
+  pinMode(BUTTON_NEXT_SONG, INPUT_PULLUP);
+  pinMode(BUTTON_VOLUME_DOWN, INPUT_PULLUP);
+  pinMode(BUTTON_VOLUME_UP, INPUT_PULLUP);
 
   // Display initial metadata
   updateDisplay();
 }
 
-void loop() {
-  unsigned long currentMillis = millis();
+////////////////////////////////// Loop //////////////////////////////////
 
-  // If the song is playing, update the playtime every second
-  if (isPlaying && totalPlaytimeMs > 0) {
-    if (currentMillis - previousMillis >= 1000) {
-      previousMillis = currentMillis;
-      currentPlaytimeMs += 1000;  // Increment playtime by 1 second
-      updatePlaytime();  // Update playtime on the display
-    }
-  }
+void loop() {
+  // Keep looping to handle Bluetooth events
+  delay(1000); // Add a delay to prevent rapid updates
+  //updatePlaytimeDisplay(); // Update current playtime periodically
 }
+
